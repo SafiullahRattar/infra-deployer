@@ -1,0 +1,36 @@
+# Terraform
+*.tfstate
+*.tfstate.backup
+*.tfplan
+.terraform/
+.terraform.lock.hcl
+terraform/tfplan
+crash.log
+
+# Environment & Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Go
+app/server
+app/coverage.out
+
+# Docker
+docker/data/
+
+# Build artifacts
+dist/
+build/
