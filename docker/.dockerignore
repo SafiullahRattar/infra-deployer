@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+*.md
+LICENSE
+terraform/
+monitoring/
+scripts/
+docker-compose.yml
+.env
+.env.*
+**/.DS_Store
+**/node_modules
+**/__pycache__
+*.tfstate
+*.tfstate.backup
+.terraform/
