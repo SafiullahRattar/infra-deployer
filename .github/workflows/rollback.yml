@@ -1,0 +1,98 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      task_definition_arn:
+        description: "Task definition ARN to rollback to (leave empty for previous revision)"
+        required: false
+        type: string
+      confirm:
+        description: "Type 'rollback' to confirm"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: us-east-1
+  CLUSTER_NAME: infra-deployer-production-cluster
+  SERVICE_NAME: infra-deployer-production-service
+
+jobs:
+  rollback:
+    name: Rollback ECS Service
+    runs-on: ubuntu-latest
+    if: github.event.inputs.confirm == 'rollback'
+    environment: production
+    steps:
+      - name: Validate confirmation
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "rollback" ]; then
+            echo "Confirmation failed. You must type 'rollback' to proceed."
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Get current task definition
+        id: current
+        run: |
+          CURRENT_TD=$(aws ecs describe-services \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --query "services[0].taskDefinition" \
+            --output text)
+          echo "current_td=$CURRENT_TD" >> "$GITHUB_OUTPUT"
+          echo "Current task definition: $CURRENT_TD"
+
+      - name: Determine rollback target
+        id: target
+        run: |
+          if [ -n "${{ github.event.inputs.task_definition_arn }}" ]; then
+            TARGET="${{ github.event.inputs.task_definition_arn }}"
+          else
+            # Get the previous revision
+            FAMILY=$(echo "${{ steps.current.outputs.current_td }}" | sed 's/:.*$//' | sed 's/.*\///')
+            CURRENT_REV=$(echo "${{ steps.current.outputs.current_td }}" | sed 's/.*://')
+            PREV_REV=$((CURRENT_REV - 1))
+            TARGET="$(echo "${{ steps.current.outputs.current_td }}" | sed "s/:${CURRENT_REV}/:${PREV_REV}/")"
+          fi
+          echo "target_td=$TARGET" >> "$GITHUB_OUTPUT"
+          echo "Rolling back to: $TARGET"
+
+      - name: Update ECS service
+        run: |
+          aws ecs update-service \
+            --cluster "$CLUSTER_NAME" \
+            --service "$SERVICE_NAME" \
+            --task-definition "${{ steps.target.outputs.target_td }}" \
+            --force-new-deployment
+
+      - name: Wait for deployment
+        run: |
+          echo "Waiting for service to stabilize..."
+          aws ecs wait services-stable \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME"
+          echo "Rollback complete!"
+
+      - name: Verify rollback
+        run: |
+          RUNNING_TD=$(aws ecs describe-services \
+            --cluster "$CLUSTER_NAME" \
+            --services "$SERVICE_NAME" \
+            --query "services[0].taskDefinition" \
+            --output text)
+          echo "Now running: $RUNNING_TD"
+          if [ "$RUNNING_TD" != "${{ steps.target.outputs.target_td }}" ]; then
+            echo "WARNING: Running task definition does not match target"
+            exit 1
+          fi
+          echo "Rollback verified successfully"
