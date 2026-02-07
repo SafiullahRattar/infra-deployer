@@ -1,0 +1,93 @@
+groups:
+  - name: application
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High HTTP error rate"
+          description: "More than 5% of requests are returning 5xx errors over the last 5 minutes. Current rate: {{ $value | humanizePercentage }}"
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 1.0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency"
+          description: "95th percentile latency is above 1 second. Current value: {{ $value }}s"
+
+      - alert: HighLatencyCritical
+        expr: |
+          histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))
+          > 5.0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical request latency"
+          description: "99th percentile latency is above 5 seconds. Current value: {{ $value }}s"
+
+      - alert: ServiceDown
+        expr: up{job="app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Application is down"
+          description: "The application has been unreachable for more than 1 minute."
+
+      - alert: HighMemoryUsage
+        expr: |
+          process_resident_memory_bytes{job="app"}
+          / 1024 / 1024 > 400
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High memory usage"
+          description: "Application memory usage is above 400MB. Current: {{ $value }}MB"
+
+      - alert: TooManyGoroutines
+        expr: go_goroutines{job="app"} > 1000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Too many goroutines"
+          description: "Application has more than 1000 goroutines. Current: {{ $value }}"
+
+  - name: infrastructure
+    rules:
+      - alert: HighDiskUsage
+        expr: |
+          (
+            (node_filesystem_size_bytes{mountpoint="/"} - node_filesystem_avail_bytes{mountpoint="/"})
+            / node_filesystem_size_bytes{mountpoint="/"}
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is above 85%. Current: {{ $value | humanizePercentage }}"
+
+      - alert: HighCPUUsage
+        expr: |
+          100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+          > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is above 80% for more than 10 minutes. Current: {{ $value }}%"
